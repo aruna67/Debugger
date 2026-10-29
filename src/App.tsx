@@ -12,20 +12,28 @@ import {
   CheckCircle2,
   Globe,
   Sliders,
-  Layers,
   FileAudio,
   Headphones,
   FileText,
+  ArrowRightLeft,
 } from 'lucide-react';
 import { AudioPlayer } from './components/AudioPlayer';
 import { AudioRecorder } from './components/AudioRecorder';
 import { VoiceSelector } from './components/VoiceSelector';
 import { TranslationViewer } from './components/TranslationViewer';
-import { SAMPLE_AUDIOS, SampleAudio } from './data/sampleAudios';
+import {
+  SAMPLE_AUDIOS_TA_TO_SI,
+  SAMPLE_AUDIOS_SI_TO_TA,
+  SampleAudio,
+} from './data/sampleAudios';
 import { blobToBase64, createSyntheticSampleAudio, downloadAudioFile } from './utils/audioUtils';
 
 export default function App() {
   const [lang, setLang] = useState<'si' | 'en'>('si');
+  // Direction: 'ta-to-si' (Tamil -> Sinhala) or 'si-to-ta' (Sinhala -> Tamil)
+  const [direction, setDirection] = useState<'ta-to-si' | 'si-to-ta'>('ta-to-si');
+  const isSiToTa = direction === 'si-to-ta';
+
   const [inputMode, setInputMode] = useState<'upload' | 'record' | 'sample'>('upload');
 
   // Input audio state
@@ -47,22 +55,42 @@ export default function App() {
 
   // Results state
   const [results, setResults] = useState<{
-    tamilTranscript: string;
-    tamilRomanized?: string;
-    sinhalaTranslation: string;
-    sinhalaRomanized?: string;
-    segments: Array<{ id: number; tamil: string; sinhala: string }>;
-    summaryTamil?: string;
-    summarySinhala?: string;
-    sinhalaAudioBase64: string;
+    direction: 'ta-to-si' | 'si-to-ta';
+    sourceTranscript: string;
+    sourceRomanized?: string;
+    targetTranslation: string;
+    targetRomanized?: string;
+    segments: Array<{ id: number; source?: string; target?: string; tamil?: string; sinhala?: string }>;
+    summarySource?: string;
+    summaryTarget?: string;
+    dubbedAudioBase64: string;
     mimeType: string;
     voiceUsed: string;
+    targetLang: 'si' | 'ta';
   } | null>(null);
 
   const [isRegeneratingVoice, setIsRegeneratingVoice] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const resultRef = useRef<HTMLDivElement | null>(null);
+
+  // Handle switching direction
+  const handleSwitchDirection = (newDir: 'ta-to-si' | 'si-to-ta') => {
+    if (newDir === direction) return;
+    setDirection(newDir);
+    setInputAudioData(null);
+    setInputFileName('');
+    setInputAudioSize('');
+    setSelectedSample(null);
+    setErrorMessage(null);
+    setResults(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // Current sample audios list based on direction
+  const currentSamples = isSiToTa ? SAMPLE_AUDIOS_SI_TO_TA : SAMPLE_AUDIOS_TA_TO_SI;
 
   // Handle file upload
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -120,7 +148,8 @@ export default function App() {
   // Handle recorded audio
   const handleAudioRecorded = async (blob: Blob, mimeType: string) => {
     setErrorMessage(null);
-    setInputFileName(`Recorded_Voice_${new Date().toLocaleTimeString().replace(/:/g, '-')}`);
+    const prefix = isSiToTa ? 'Sinhala_Voice' : 'Tamil_Voice';
+    setInputFileName(`${prefix}_${new Date().toLocaleTimeString().replace(/:/g, '-')}`);
     setInputAudioSize(`${(blob.size / 1024).toFixed(1)} KB`);
     setInputMimeType(mimeType);
     setSelectedSample(null);
@@ -132,7 +161,8 @@ export default function App() {
   // Handle sample audio selection
   const handleSelectSample = async (sample: SampleAudio) => {
     setSelectedSample(sample);
-    setInputFileName(`Sample_${sample.category}_Tamil.wav`);
+    const prefix = isSiToTa ? 'Sample_Sinhala' : 'Sample_Tamil';
+    setInputFileName(`${prefix}_${sample.category}.wav`);
     setInputAudioSize(sample.durationDesc);
     setInputMimeType('audio/wav');
     setErrorMessage(null);
@@ -160,7 +190,7 @@ export default function App() {
     let res: Response;
     try {
       res = await fetch(url, options);
-    } catch (networkErr: any) {
+    } catch {
       throw new Error(
         lang === 'si'
           ? 'සබඳතා දෝෂයක්. කරුණාකර ඔබගේ අන්තර්ජාල සබඳතාව පරීක්ෂා කර නැවත උත්සාහ කරන්න.'
@@ -216,12 +246,16 @@ export default function App() {
     return data;
   };
 
-  // Main Conversion Action: Tamil MP3 ➔ Sinhala Voice
+  // Main Action: Convert & Dub (Direction-aware)
   const handleConvertAndDub = async () => {
     if (!inputAudioData) {
       setErrorMessage(
         lang === 'si'
-          ? 'කරුණාකර පළමුව දමිළ ශ්‍රව්‍ය (Tamil MP3/Audio) ගොනුවක් එක් කරන්න.'
+          ? isSiToTa
+            ? 'කරුණාකර පළමුව සිංහල ශ්‍රව්‍ය (Sinhala MP3/Audio) ගොනුවක් එක් කරන්න.'
+            : 'කරුණාකර පළමුව දමිළ ශ්‍රව්‍ය (Tamil MP3/Audio) ගොනුවක් එක් කරන්න.'
+          : isSiToTa
+          ? 'Please provide a Sinhala audio file first.'
           : 'Please provide a Tamil audio file first.'
       );
       return;
@@ -235,25 +269,27 @@ export default function App() {
       let transcriptData: any;
 
       if (selectedSample) {
-        // Sample preset: smooth instantaneous step progression for flawless UX
+        // Sample preset: smooth instantaneous step progression for fast testing
         setProcessingStep(2);
-        await new Promise((r) => setTimeout(r, 600));
+        await new Promise((r) => setTimeout(r, 500));
 
         setProcessingStep(3);
-        await new Promise((r) => setTimeout(r, 600));
+        await new Promise((r) => setTimeout(r, 500));
 
         transcriptData = {
-          tamilTranscript: selectedSample.tamilText,
-          tamilRomanized: selectedSample.tamilRomanized,
-          sinhalaTranslation: selectedSample.expectedSinhala,
-          sinhalaRomanized: selectedSample.expectedSinhalaSinglish,
-          summaryTamil: selectedSample.titleEn,
-          summarySinhala: selectedSample.titleSi,
+          sourceTranscript: selectedSample.sourceText,
+          sourceRomanized: selectedSample.sourceRomanized,
+          targetTranslation: selectedSample.expectedTarget,
+          targetRomanized: selectedSample.expectedTargetRomanized,
+          summarySource: selectedSample.titleSi,
+          summaryTarget: selectedSample.titleEn,
           segments: [
             {
               id: 1,
-              tamil: selectedSample.tamilText,
-              sinhala: selectedSample.expectedSinhala,
+              source: selectedSample.sourceText,
+              target: selectedSample.expectedTarget,
+              tamil: isSiToTa ? selectedSample.expectedTarget : selectedSample.sourceText,
+              sinhala: isSiToTa ? selectedSample.sourceText : selectedSample.expectedTarget,
             },
           ],
         };
@@ -268,6 +304,7 @@ export default function App() {
             audioData: inputAudioData,
             mimeType: inputMimeType,
             targetTone: selectedTone,
+            direction: direction,
           }),
         });
 
@@ -277,40 +314,54 @@ export default function App() {
         await new Promise((r) => setTimeout(r, 400));
       }
 
-      setProcessingStep(4); // Generating Sinhala Speech
+      setProcessingStep(4); // Generating Dubbed Voice
 
-      const sinhalaTextToVoice = transcriptData.sinhalaTranslation || '';
-      if (!sinhalaTextToVoice.trim()) {
-        throw new Error('සිංහල පරිවර්තනයක් ජනනය කරගත නොහැකි විය.');
+      const targetTextToVoice =
+        transcriptData.targetTranslation ||
+        (isSiToTa ? transcriptData.tamilTranscript : transcriptData.sinhalaTranslation) ||
+        '';
+
+      if (!targetTextToVoice.trim()) {
+        throw new Error('පරිවර්තනය ජනනය කරගත නොහැකි විය.');
       }
 
-      // Generate Sinhala Voice via Gemini 3.8 Flash Lite TTS
+      const targetLang = isSiToTa ? 'ta' : 'si';
+      const speechStyle = isSiToTa
+        ? `Natural, expressive, articulate Tamil speaker (${selectedTone} style)`
+        : `Natural, expressive, clear Sri Lankan Sinhala speaker (${selectedTone} style)`;
+
+      // Generate Voice via Gemini 3.8 Flash Lite TTS
       const ttsJson = await safeJsonFetch('/api/generate-sinhala-speech', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          text: sinhalaTextToVoice,
+          text: targetTextToVoice,
           voiceName: selectedVoice,
-          style: `Natural, expressive, clear Sri Lankan Sinhala speaker (${selectedTone} style)`,
+          targetLang: targetLang,
+          style: speechStyle,
         }),
       });
 
       setResults({
-        tamilTranscript: transcriptData.tamilTranscript || '',
-        tamilRomanized: transcriptData.tamilRomanized,
-        sinhalaTranslation: sinhalaTextToVoice,
-        sinhalaRomanized: transcriptData.sinhalaRomanized,
+        direction: direction,
+        sourceTranscript:
+          transcriptData.sourceTranscript ||
+          (isSiToTa ? transcriptData.sinhalaTranslation : transcriptData.tamilTranscript) ||
+          '',
+        sourceRomanized: transcriptData.sourceRomanized,
+        targetTranslation: targetTextToVoice,
+        targetRomanized: transcriptData.targetRomanized,
         segments: transcriptData.segments || [],
-        summaryTamil: transcriptData.summaryTamil,
-        summarySinhala: transcriptData.summarySinhala,
-        sinhalaAudioBase64: ttsJson.audioBase64,
+        summarySource: transcriptData.summarySource,
+        summaryTarget: transcriptData.summaryTarget,
+        dubbedAudioBase64: ttsJson.audioBase64,
         mimeType: ttsJson.mimeType || 'audio/wav',
         voiceUsed: selectedVoice,
+        targetLang: targetLang,
       });
 
       setIsRetryable(false);
 
-      // Smooth scroll to results
       setTimeout(() => {
         resultRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 300);
@@ -337,21 +388,27 @@ export default function App() {
     }
   };
 
-  // Re-generate Sinhala speech if user edits the text
-  const handleRegenerateVoice = async (editedSinhalaText: string) => {
-    if (!results || !editedSinhalaText.trim()) return;
+  // Re-generate speech if user edits the target text
+  const handleRegenerateVoice = async (editedTargetText: string) => {
+    if (!results || !editedTargetText.trim()) return;
 
     setIsRegeneratingVoice(true);
     setErrorMessage(null);
 
     try {
+      const targetLang = isSiToTa ? 'ta' : 'si';
+      const speechStyle = isSiToTa
+        ? `Natural, expressive, articulate Tamil speaker (${selectedTone})`
+        : `Natural, expressive, articulate Sri Lankan Sinhala speaker (${selectedTone})`;
+
       const json = await safeJsonFetch('/api/generate-sinhala-speech', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          text: editedSinhalaText,
+          text: editedTargetText,
           voiceName: selectedVoice,
-          style: `Natural, expressive, articulate Sri Lankan Sinhala speaker (${selectedTone})`,
+          targetLang: targetLang,
+          style: speechStyle,
         }),
       });
 
@@ -359,8 +416,8 @@ export default function App() {
         prev
           ? {
               ...prev,
-              sinhalaTranslation: editedSinhalaText,
-              sinhalaAudioBase64: json.audioBase64,
+              targetTranslation: editedTargetText,
+              dubbedAudioBase64: json.audioBase64,
               voiceUsed: selectedVoice,
             }
           : null
@@ -370,9 +427,7 @@ export default function App() {
       console.error(err);
       const msg = err.message || '';
       const isTemp =
-        msg.includes('503') ||
-        msg.includes('high demand') ||
-        msg.includes('unavailable');
+        msg.includes('503') || msg.includes('high demand') || msg.includes('unavailable');
       setIsRetryable(isTemp);
       setErrorMessage(msg || 'හඬ නැවත උත්පාදනය කිරීමට නොහැකි විය.');
     } finally {
@@ -380,11 +435,15 @@ export default function App() {
     }
   };
 
-  const downloadFinalSinhalaAudio = () => {
-    if (!results?.sinhalaAudioBase64) return;
-    const filename = `Sinhala_Voice_${selectedVoice}_${Date.now()}.wav`;
-    downloadAudioFile(results.sinhalaAudioBase64, filename, results.mimeType);
+  const downloadFinalDubbedAudio = () => {
+    if (!results?.dubbedAudioBase64) return;
+    const prefix = isSiToTa ? 'Tamil_Dubbed_Voice' : 'Sinhala_Dubbed_Voice';
+    const filename = `${prefix}_${selectedVoice}_${Date.now()}.wav`;
+    downloadAudioFile(results.dubbedAudioBase64, filename, results.mimeType);
   };
+
+  const sourceLangLabel = isSiToTa ? 'සිංහල (Sinhala)' : 'දමිළ (Tamil)';
+  const targetLangLabel = isSiToTa ? 'දමිළ (Tamil)' : 'සිංහල (Sinhala)';
 
   return (
     <div className="min-h-screen bg-[#090d16] text-slate-100 flex flex-col selection:bg-amber-500 selection:text-black">
@@ -399,8 +458,8 @@ export default function App() {
               <div className="flex items-center gap-2">
                 <h1 className="font-bold text-base md:text-lg text-slate-100 font-sinhala">
                   {lang === 'si'
-                    ? 'දමිළ ➔ සිංහල හඬ පරිවර්තකය'
-                    : 'Tamil to Sinhala Voice Dubber'}
+                    ? 'දමිළ ⇄ සිංහල හඬ පරිවර්තකය'
+                    : 'Tamil ⇄ Sinhala Voice Dubber'}
                 </h1>
                 <span className="hidden sm:inline-flex text-[11px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                   Gemini 3.8 AI
@@ -408,8 +467,8 @@ export default function App() {
               </div>
               <p className="text-xs text-slate-400 hidden sm:block">
                 {lang === 'si'
-                  ? 'දමිළ MP3 ලබාදී ස්වභාවික සිංහල හඬින් ක්ෂණිකව බාගත කරගන්න'
-                  : 'Convert Tamil MP3 audio to natural Sinhala voice & download'}
+                  ? 'දමිළ MP3 සිංහල හඬට හෝ සිංහල MP3 දමිළ හඬට හරවා ක්ෂණිකව බාගත කරගන්න'
+                  : 'Convert Tamil MP3 to Sinhala voice & Sinhala MP3 to Tamil voice'}
               </p>
             </div>
           </div>
@@ -439,22 +498,71 @@ export default function App() {
 
       {/* Main Container */}
       <main className="max-w-6xl mx-auto px-4 py-8 flex-1 w-full space-y-8">
+        {/* Direction Switcher Banner */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 rounded-3xl border border-amber-500/30 bg-slate-950/80 shadow-xl">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+              {lang === 'si' ? 'පරිවර්තන දිශාව (Mode):' : 'Dubbing Direction:'}
+            </span>
+          </div>
+
+          <div className="inline-flex items-center rounded-2xl bg-slate-900 border border-slate-800 p-1.5 shadow-inner">
+            <button
+              onClick={() => handleSwitchDirection('ta-to-si')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                !isSiToTa
+                  ? 'bg-amber-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span>දමිළ ➔ සිංහල (Tamil to Sinhala)</span>
+            </button>
+
+            <button
+              onClick={() => handleSwitchDirection(isSiToTa ? 'ta-to-si' : 'si-to-ta')}
+              className="p-2 text-slate-400 hover:text-amber-400 hover:bg-slate-800/80 rounded-xl transition-colors mx-1"
+              title="දිශාව මාරු කරන්න (Switch Direction)"
+            >
+              <ArrowRightLeft className="w-4 h-4 text-amber-400" />
+            </button>
+
+            <button
+              onClick={() => handleSwitchDirection('si-to-ta')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                isSiToTa
+                  ? 'bg-amber-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span>සිංහල ➔ දමිළ (Sinhala to Tamil)</span>
+            </button>
+          </div>
+        </div>
+
         {/* Hero Banner */}
         <section className="relative overflow-hidden rounded-3xl border border-amber-500/20 bg-gradient-to-r from-amber-500/10 via-slate-900 to-orange-950/20 p-6 md:p-8">
           <div className="relative z-10 max-w-3xl space-y-3">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-semibold">
               <Sparkles className="w-3.5 h-3.5 animate-spin" />
-              {lang === 'si'
-                ? 'AI බලයෙන් ක්‍රියාත්මක දමිළ-සිංහල ශ්‍රව්‍ය ඩබිං පද්ධතිය'
-                : 'AI-Powered Tamil to Sinhala Audio Translation & Dubbing'}
+              {isSiToTa
+                ? 'සිංහල ➔ දමිළ AI ශ්‍රව්‍ය ඩබිං පද්ධතිය'
+                : 'දමිළ ➔ සිංහල AI ශ්‍රව්‍ය ඩබිං පද්ධතිය'}
             </div>
             <h2 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight font-sinhala">
-              {lang === 'si'
+              {isSiToTa
+                ? lang === 'si'
+                  ? 'සිංහල MP3 එකක් දෙන්න — දමිළ හඬින් අසා බාගත කරගන්න!'
+                  : 'Upload Sinhala MP3 — Get Natural Tamil Voice & Download!'
+                : lang === 'si'
                 ? 'දමිළ MP3 එකක් දෙන්න — සිංහල හඬින් අසා බාගත කරගන්න!'
                 : 'Upload Tamil MP3 — Get Natural Sinhala Voice & Download!'}
             </h2>
             <p className="text-sm md:text-base text-slate-300 leading-relaxed font-sinhala">
-              {lang === 'si'
+              {isSiToTa
+                ? lang === 'si'
+                  ? 'ඔබේ සිංහල ශ්‍රව්‍ය ගොනුව (MP3/WAV) මෙතැනට ඇතුළත් කරන්න. Gemini AI මඟින් සිංහල හඬ හඳුනාගෙන, ස්වභාවික දමිළ භාෂාවට පරිවර්තනය කර, පැහැදිලි කටහඬකින් ශ්‍රව්‍ය ගොනුවක් සකසා ක්ෂණිකව Download කරගත හැක.'
+                  : 'Upload or record any Sinhala audio file. Gemini AI transcribes and translates the speech into authentic Tamil, generates high-fidelity voice dubbing, and lets you download the audio instantly.'
+                : lang === 'si'
                 ? 'ඔබේ දමිළ ශ්‍රව්‍ය ගොනුව (MP3/WAV) මෙතැනට ඇතුළත් කරන්න. Gemini AI මඟින් දමිළ හඬ හඳුනාගෙන, ස්වභාවික සිංහල භාෂාවට හරවා, පැහැදිලි කටහඬකින් ශ්‍රව්‍ය ගොනුවක් සකසා ක්ෂණිකව Download කරගත හැක.'
                 : 'Upload or record any Tamil audio file. Gemini AI transcribes and translates the speech into authentic Sinhala, generates high-fidelity voice dubbing, and lets you download the audio instantly.'}
             </p>
@@ -463,7 +571,7 @@ export default function App() {
           <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-radial from-amber-500/10 to-transparent pointer-events-none" />
         </section>
 
-        {/* Global Error Banner if any */}
+        {/* Global Error Banner */}
         {errorMessage && (
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-2xl border border-rose-500/40 bg-rose-950/30 text-rose-200 shadow-lg">
             <div className="flex items-start gap-3">
@@ -499,7 +607,9 @@ export default function App() {
                 1
               </span>
               <h3 className="text-base md:text-lg font-bold text-slate-100 font-sinhala">
-                {lang === 'si' ? 'දමිළ ශ්‍රව්‍යය ලබාදෙන්න (Tamil Audio Input)' : 'Provide Tamil Audio'}
+                {lang === 'si'
+                  ? `${sourceLangLabel} ශ්‍රව්‍යය ලබාදෙන්න (Audio Input)`
+                  : `Provide ${sourceLangLabel} Audio`}
               </h3>
             </div>
 
@@ -568,8 +678,8 @@ export default function App() {
                 <div>
                   <p className="text-base font-semibold text-slate-200 font-sinhala">
                     {lang === 'si'
-                      ? 'දමිළ MP3 හෝ Audio ගොනුව මෙතැනට ඇද දමන්න (Drag & Drop)'
-                      : 'Drag & Drop your Tamil MP3 or Audio file here'}
+                      ? `${sourceLangLabel} MP3 හෝ Audio ගොනුව මෙතැනට ඇද දමන්න (Drag & Drop)`
+                      : `Drag & Drop your ${sourceLangLabel} MP3 or Audio file here`}
                   </p>
                   <p className="text-xs text-slate-400 mt-1">
                     {lang === 'si'
@@ -590,7 +700,11 @@ export default function App() {
 
           {/* Mode 2: Live Recording */}
           {inputMode === 'record' && (
-            <AudioRecorder onAudioRecorded={handleAudioRecorded} lang={lang} />
+            <AudioRecorder
+              onAudioRecorded={handleAudioRecorded}
+              sourceLang={isSiToTa ? 'si' : 'ta'}
+              lang={lang}
+            />
           )}
 
           {/* Mode 3: Sample Audios */}
@@ -598,11 +712,11 @@ export default function App() {
             <div className="space-y-3">
               <p className="text-xs text-slate-400">
                 {lang === 'si'
-                  ? 'ඔබ සතුව දමිළ MP3 එකක් මේ මොහොතේ නොමැති නම්, පහත නියැදි ශ්‍රව්‍ය ක්ලික් කර ක්ෂණිකව පරීක්ෂා කරන්න:'
-                  : 'If you do not have a Tamil MP3 file on hand, test with these realistic Tamil sample audios:'}
+                  ? `ඔබ සතුව ${sourceLangLabel} MP3 එකක් මේ මොහොතේ නොමැති නම්, පහත නියැදි ශ්‍රව්‍ය ක්ලික් කර ක්ෂණිකව පරීක්ෂා කරන්න:`
+                  : `If you do not have a ${sourceLangLabel} MP3 file on hand, test with these realistic sample audios:`}
               </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {SAMPLE_AUDIOS.map((sample) => {
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {currentSamples.map((sample) => {
                   const isSelected = selectedSample?.id === sample.id;
                   return (
                     <div
@@ -627,8 +741,12 @@ export default function App() {
                       <h4 className="font-semibold text-slate-200 text-sm mb-1 font-sinhala">
                         {lang === 'si' ? sample.titleSi : sample.titleEn}
                       </h4>
-                      <p className="text-xs text-blue-300 font-tamil line-clamp-2">
-                        {sample.tamilText}
+                      <p
+                        className={`text-xs text-blue-300 line-clamp-2 ${
+                          isSiToTa ? 'font-sinhala' : 'font-tamil'
+                        }`}
+                      >
+                        {sample.sourceText}
                       </p>
                     </div>
                   );
@@ -655,7 +773,9 @@ export default function App() {
                       )}
                     </div>
                     <span className="text-xs text-blue-400 font-medium">
-                      {lang === 'si' ? 'දමිළ ශ්‍රව්‍යය පෙරදසුන (Original Tamil Audio)' : 'Tamil Audio Preview'}
+                      {lang === 'si'
+                        ? `මුල් ${sourceLangLabel} ශ්‍රව්‍යය පෙරදසුන (Original Audio)`
+                        : `Original ${sourceLangLabel} Audio Preview`}
                     </span>
                   </div>
                 </div>
@@ -671,9 +791,9 @@ export default function App() {
               {/* Input Audio Player */}
               <AudioPlayer
                 audioSrc={inputAudioData}
-                title={inputFileName || 'Tamil Audio'}
-                subtitle="මුල් දමිළ ශ්‍රව්‍යය (Original Tamil)"
-                badge="Tamil Input"
+                title={inputFileName || 'Input Audio'}
+                subtitle={`මුල් ${sourceLangLabel} ශ්‍රව්‍යය (Original)`}
+                badge={`${sourceLangLabel} Input`}
                 badgeColor="bg-blue-500/10 text-blue-400 border-blue-500/20"
                 mimeType={inputMimeType}
               />
@@ -688,7 +808,9 @@ export default function App() {
               2
             </span>
             <h3 className="text-base md:text-lg font-bold text-slate-100 font-sinhala">
-              {lang === 'si' ? 'සිංහල කටහඬ හා විලාසය සකසන්න (Voice Options)' : 'Choose Sinhala Voice & Tone'}
+              {lang === 'si'
+                ? `${targetLangLabel} කටහඬ හා විලාසය සකසන්න (Voice Options)`
+                : `Choose ${targetLangLabel} Voice & Tone`}
             </h3>
           </div>
 
@@ -697,6 +819,7 @@ export default function App() {
             onVoiceChange={setSelectedVoice}
             selectedTone={selectedTone}
             onToneChange={setSelectedTone}
+            targetLang={isSiToTa ? 'ta' : 'si'}
             lang={lang}
           />
         </section>
@@ -718,16 +841,16 @@ export default function App() {
                 <span>
                   {processingStep === 2
                     ? lang === 'si'
-                      ? 'දමිළ හඬ හඳුනාගනිමින්...'
-                      : 'Transcribing Tamil...'
+                      ? `${sourceLangLabel} හඬ හඳුනාගනිමින්...`
+                      : `Transcribing ${sourceLangLabel}...`
                     : processingStep === 3
                     ? lang === 'si'
-                      ? 'සිංහලට පරිවර්තනය කරමින්...'
-                      : 'Translating to Sinhala...'
+                      ? `${targetLangLabel} බසට පරිවර්තනය කරමින්...`
+                      : `Translating to ${targetLangLabel}...`
                     : processingStep === 4
                     ? lang === 'si'
-                      ? 'සිංහල කටහඬ ජනනය කරමින්...'
-                      : 'Synthesizing Sinhala Voice...'
+                      ? `${targetLangLabel} කටහඬ ජනනය කරමින්...`
+                      : `Synthesizing ${targetLangLabel} Voice...`
                     : lang === 'si'
                     ? 'සකසමින්...'
                     : 'Processing...'}
@@ -738,8 +861,8 @@ export default function App() {
                 <Sparkles className="w-5 h-5" />
                 <span>
                   {lang === 'si'
-                    ? 'සිංහල හඬට පරිවර්තනය කර ඩබ් කරන්න'
-                    : 'Translate & Generate Sinhala Voice'}
+                    ? `${targetLangLabel} හඬට පරිවර්තනය කර ඩබ් කරන්න`
+                    : `Translate & Generate ${targetLangLabel} Voice`}
                 </span>
                 <ArrowRight className="w-5 h-5" />
               </>
@@ -751,13 +874,13 @@ export default function App() {
             <div className="w-full max-w-lg mt-6 space-y-2">
               <div className="flex justify-between text-xs text-slate-400 font-sinhala">
                 <span className={processingStep >= 2 ? 'text-amber-400 font-semibold' : ''}>
-                  1. දමිළ හඳුනාගැනීම
+                  1. {sourceLangLabel} හඳුනාගැනීම
                 </span>
                 <span className={processingStep >= 3 ? 'text-amber-400 font-semibold' : ''}>
-                  2. සිංහල පරිවර්තනය
+                  2. {targetLangLabel} පරිවර්තනය
                 </span>
                 <span className={processingStep >= 4 ? 'text-amber-400 font-semibold' : ''}>
-                  3. සිංහල හඬ ජනනය
+                  3. {targetLangLabel} හඬ ජනනය
                 </span>
               </div>
               <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
@@ -786,58 +909,62 @@ export default function App() {
                     </span>
                     <h3 className="text-xl md:text-2xl font-bold text-white font-sinhala mt-1">
                       {lang === 'si'
-                        ? 'ඔබේ සිංහල හඬ සූදානම්! (Sinhala Audio Ready)'
-                        : 'Your Sinhala Voice Audio is Ready!'}
+                        ? `ඔබේ ${targetLangLabel} හඬ සූදානම්! (${targetLangLabel} Audio Ready)`
+                        : `Your ${targetLangLabel} Voice Audio is Ready!`}
                     </h3>
                   </div>
                 </div>
 
                 {/* Big Direct Download Button */}
                 <button
-                  onClick={downloadFinalSinhalaAudio}
+                  onClick={downloadFinalDubbedAudio}
                   className="flex items-center gap-2.5 px-6 py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm md:text-base shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/35 transition-all active:scale-95 font-sinhala"
                 >
                   <Download className="w-5 h-5" />
-                  <span>{lang === 'si' ? 'සිංහල හඬ බාගත කරන්න (Download WAV)' : 'Download Sinhala Audio (.WAV)'}</span>
+                  <span>
+                    {lang === 'si'
+                      ? `${targetLangLabel} හඬ බාගත කරන්න (Download WAV)`
+                      : `Download ${targetLangLabel} Audio (.WAV)`}
+                  </span>
                 </button>
               </div>
 
-              {/* Primary Sinhala Audio Player */}
+              {/* Primary Dubbed Audio Player */}
               <div className="space-y-2">
                 <AudioPlayer
-                  audioSrc={results.sinhalaAudioBase64}
-                  title={`සිංහල හඬ (${results.voiceUsed})`}
-                  subtitle="ස්වභාවික AI සිංහල කටහඬ"
-                  badge="Sinhala Voice Output"
+                  audioSrc={results.dubbedAudioBase64}
+                  title={`${targetLangLabel} හඬ (${results.voiceUsed})`}
+                  subtitle={`ස්වභාවික AI ${targetLangLabel} කටහඬ`}
+                  badge={`${targetLangLabel} Voice Output`}
                   badgeColor="bg-amber-500/15 text-amber-300 border-amber-500/30"
                   highlightSinhala={true}
-                  downloadFilename={`Sinhala_Voice_${results.voiceUsed}_${Date.now()}.wav`}
+                  downloadFilename={`${isSiToTa ? 'Tamil_Dubbed_Voice' : 'Sinhala_Dubbed_Voice'}_${results.voiceUsed}_${Date.now()}.wav`}
                   mimeType={results.mimeType}
                 />
               </div>
 
-              {/* Side-by-Side Audio Comparison Player (if input audio exists) */}
+              {/* Side-by-Side Audio Comparison Player */}
               {inputAudioData && (
                 <div className="mt-6 pt-6 border-t border-slate-800">
                   <h4 className="text-xs font-semibold text-slate-400 mb-3 uppercase tracking-wider">
                     {lang === 'si'
-                      ? 'මුල් දමිළ ශ්‍රව්‍යය හා සිංහල ශ්‍රව්‍යය සංසන්දනය කරන්න:'
-                      : 'Compare Original Tamil vs Generated Sinhala Audio:'}
+                      ? `මුල් ${sourceLangLabel} ශ්‍රව්‍යය හා ${targetLangLabel} ශ්‍රව්‍යය සංසන්දනය කරන්න:`
+                      : `Compare Original ${sourceLangLabel} vs Generated ${targetLangLabel} Audio:`}
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <AudioPlayer
                       audioSrc={inputAudioData}
-                      title="1. මුල් දමිළ ශ්‍රව්‍යය (Original Tamil)"
-                      subtitle="දමිළ කථනය"
-                      badge="Tamil Original"
+                      title={`1. මුල් ${sourceLangLabel} ශ්‍රව්‍යය (Original)`}
+                      subtitle={`${sourceLangLabel} කථනය`}
+                      badge={`${sourceLangLabel} Original`}
                       badgeColor="bg-blue-500/15 text-blue-400 border-blue-500/30"
                       mimeType={inputMimeType}
                     />
                     <AudioPlayer
-                      audioSrc={results.sinhalaAudioBase64}
-                      title={`2. සිංහල හඬ (${results.voiceUsed})`}
-                      subtitle="සිංහල කථනය"
-                      badge="Sinhala Dubbed"
+                      audioSrc={results.dubbedAudioBase64}
+                      title={`2. ${targetLangLabel} හඬ (${results.voiceUsed})`}
+                      subtitle={`${targetLangLabel} කථනය`}
+                      badge={`${targetLangLabel} Dubbed`}
                       badgeColor="bg-amber-500/15 text-amber-400 border-amber-500/30"
                       highlightSinhala={true}
                       mimeType={results.mimeType}
@@ -849,19 +976,20 @@ export default function App() {
 
             {/* Translation and Transcript Review & Edit */}
             <TranslationViewer
-              tamilTranscript={results.tamilTranscript}
-              tamilRomanized={results.tamilRomanized}
-              sinhalaTranslation={results.sinhalaTranslation}
-              sinhalaRomanized={results.sinhalaRomanized}
+              direction={results.direction}
+              sourceTranscript={results.sourceTranscript}
+              sourceRomanized={results.sourceRomanized}
+              targetTranslation={results.targetTranslation}
+              targetRomanized={results.targetRomanized}
               segments={results.segments}
-              summaryTamil={results.summaryTamil}
-              summarySinhala={results.summarySinhala}
-              onUpdateSinhalaText={(newText) => {
-                setResults((prev) => (prev ? { ...prev, sinhalaTranslation: newText } : null));
+              summarySource={results.summarySource}
+              summaryTarget={results.summaryTarget}
+              onUpdateTargetText={(newText) => {
+                setResults((prev) => (prev ? { ...prev, targetTranslation: newText } : null));
               }}
               onRegenerateVoice={handleRegenerateVoice}
               isRegeneratingVoice={isRegeneratingVoice}
-              onDownloadAudio={downloadFinalSinhalaAudio}
+              onDownloadAudio={downloadFinalDubbedAudio}
               lang={lang}
             />
           </section>
@@ -876,21 +1004,21 @@ export default function App() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-slate-300 font-sinhala leading-relaxed">
             <div className="p-3.5 rounded-xl border border-slate-800/80 bg-slate-950/40 space-y-1">
-              <h5 className="font-semibold text-slate-200">1. පැහැදිලි ශබ්ද පටිගත කිරීම</h5>
+              <h5 className="font-semibold text-slate-200">1. දෙපැත්තටම හඬ පරිවර්තනය</h5>
               <p className="text-slate-400">
-                පසුබිම් ඝෝෂාව (Background noise) අවම වන විට Gemini AI ආකෘතියට දමිළ වචන 100% ක් නිවැරදිව හඳුනාගත හැක.
+                දමිළ MP3 සිංහල හඬට මෙන්ම සිංහල MP3 දමිළ හඬට (Tamil Dubbed Voice) ක්ෂණිකව මාරු කළ හැක.
               </p>
             </div>
             <div className="p-3.5 rounded-xl border border-slate-800/80 bg-slate-950/40 space-y-1">
-              <h5 className="font-semibold text-slate-200">2. සිංහල අකුරු සංස්කරණය</h5>
+              <h5 className="font-semibold text-slate-200">2. පෙළ සංස්කරණය හා Re-voice</h5>
               <p className="text-slate-400">
-                පරිවර්තනය වූ පසු අවශ්‍ය නම් නම් හෝ විශේෂ වචන "වෙනස් කරන්න (Edit)" බොත්තම මඟින් පහසුවෙන් වෙනස් කර නැවත හඬ ගන්වන්න.
+                පරිවර්තනය වූ පසු අවශ්‍ය නම් විශේෂ නම් හෝ වචන Edit කර නැවත ක්ෂණිකව හඬ ගන්වා බාගත කරගත හැක.
               </p>
             </div>
             <div className="p-3.5 rounded-xl border border-slate-800/80 bg-slate-950/40 space-y-1">
-              <h5 className="font-semibold text-slate-200">3. විවිධ කටහඬවල් තෝරාගැනීම</h5>
+              <h5 className="font-semibold text-slate-200">3. විවිධ AI කටහඬවල්</h5>
               <p className="text-slate-400">
-                කාන්තා (Kore, Zephyr) හෝ පිරිමි (Puck, Fenrir, Charon) කටහඬවල් අතරින් ඔබේ අවශ්‍යතාවයට වඩාත්ම ගැළපෙන කටහඬ තෝරාගත හැක.
+                කාන්තා (Kore, Zephyr) හෝ පිරිමි (Puck, Fenrir, Charon) කටහඬවල් අතරින් අවශ්‍ය විලාසය තෝරාගන්න.
               </p>
             </div>
           </div>
@@ -915,16 +1043,16 @@ export default function App() {
 
             <div className="space-y-3 text-xs md:text-sm text-slate-300 font-sinhala leading-relaxed">
               <p>
-                <strong className="text-amber-400">පියවර 1:</strong> ඔබේ දමිළ MP3/WAV ශ්‍රව්‍ය ගොනුව Upload කරන්න හෝ Mic එකෙන් කතා කර පටිගත කරන්න (නැතහොත් Samples ක්ලික් කරන්න).
+                <strong className="text-amber-400">පියවර 1 (දිශාව තෝරන්න):</strong> [දමිළ ➔ සිංහල] හෝ [සිංහල ➔ දමිළ] අතරින් ඔබට අවශ්‍ය පරිවර්තන ක්‍රමය තෝරන්න.
               </p>
               <p>
-                <strong className="text-amber-400">පියවර 2:</strong> ඔබ කැමති AI කටහඬ (Kore, Puck, ආදී) සහ කතා විලාසය තෝරන්න.
+                <strong className="text-amber-400">පියවර 2:</strong> ඔබගේ MP3/Audio ගොනුව Upload කරන්න හෝ මයික්‍රෆෝනයෙන් කතා කර පටිගත කරන්න.
               </p>
               <p>
-                <strong className="text-amber-400">පියවර 3:</strong> "සිංහල හඬට පරිවර්තනය කරන්න" බොත්තම ඔබන්න.
+                <strong className="text-amber-400">පියවර 3:</strong> ඔබට අවශ්‍ය AI කටහඬ (Kore, Puck, ආදී) තෝරා "හඬට පරිවර්තනය කරන්න" ඔබන්න.
               </p>
               <p>
-                <strong className="text-amber-400">පියවර 4:</strong> නිපදවූ සිංහල හඬට සවන් දී <span className="text-emerald-400 font-bold">"සිංහල හඬ බාගත කරන්න"</span> මඟින් ඔබේ පරිගණකයට හෝ දුරකථනයට Download කරගන්න!
+                <strong className="text-amber-400">පියවර 4:</strong> උත්පාදනය වූ ශ්‍රව්‍යය අසා <span className="text-emerald-400 font-bold">"හඬ බාගත කරන්න (Download WAV)"</span> මඟින් ඔබේ පරිගණකයට හෝ දුරකථනයට Download කරගන්න!
               </p>
             </div>
 
@@ -943,7 +1071,7 @@ export default function App() {
       {/* Footer */}
       <footer className="border-t border-slate-800/80 bg-slate-950 py-5 text-center text-xs text-slate-500 font-sinhala">
         <p>
-          දමිළ ➔ සිංහල හඬ පරිවර්තන හා ඩබිං පද්ධතිය | Powered by Google Gemini 3.8 Flash & Flash-Lite TTS
+          දමිළ ⇄ සිංහල ද්වි-දිශානතික AI හඬ පරිවර්තන පද්ධතිය | Powered by Google Gemini 3.8 Flash & Flash-Lite TTS
         </p>
       </footer>
     </div>

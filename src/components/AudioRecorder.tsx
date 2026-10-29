@@ -4,10 +4,16 @@ import { formatTime } from '../utils/audioUtils';
 
 interface AudioRecorderProps {
   onAudioRecorded: (blob: Blob, mimeType: string) => void;
+  sourceLang?: 'ta' | 'si';
   lang: 'si' | 'en';
 }
 
-export const AudioRecorder: React.FC<AudioRecorderProps> = ({ onAudioRecorded, lang }) => {
+export const AudioRecorder: React.FC<AudioRecorderProps> = ({
+  onAudioRecorded,
+  sourceLang = 'ta',
+  lang,
+}) => {
+  const isSourceSinhala = sourceLang === 'si';
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
@@ -127,7 +133,13 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({ onAudioRecorded, l
               <span>{formatTime(recordingTime)}</span>
             </div>
             <p className="text-xs text-slate-300">
-              {lang === 'si' ? 'දමිළ බසින් කතා කරන්න... (දැන් පටිගත වේ)' : 'Speak in Tamil... (Recording in progress)'}
+              {lang === 'si'
+                ? isSourceSinhala
+                  ? 'සිංහල බසින් කතා කරන්න... (දැන් පටිගත වේ)'
+                  : 'දමිළ බසින් කතා කරන්න... (දැන් පටිගත වේ)'
+                : isSourceSinhala
+                ? 'Speak in Sinhala... (Recording in progress)'
+                : 'Speak in Tamil... (Recording in progress)'}
             </p>
           </div>
         ) : recordedBlob ? (
@@ -169,7 +181,13 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({ onAudioRecorded, l
             </button>
             <div className="text-center">
               <p className="text-sm font-semibold text-slate-200">
-                {lang === 'si' ? 'සජීවීව දමිළ හඬ පටිගත කරන්න' : 'Record Tamil Audio Live'}
+                {lang === 'si'
+                  ? isSourceSinhala
+                    ? 'සජීවීව සිංහල හඬ පටිගත කරන්න'
+                    : 'සජීවීව දමිළ හඬ පටිගත කරන්න'
+                  : isSourceSinhala
+                  ? 'Record Sinhala Audio Live'
+                  : 'Record Tamil Audio Live'}
               </p>
               <p className="text-xs text-slate-400 mt-0.5">
                 {lang === 'si' ? 'මයික්‍රෆෝනය මඟින් කෙලින්ම කතා කරන්න' : 'Use your microphone directly'}

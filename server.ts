@@ -119,11 +119,16 @@ function formatErrorMessage(err: any): { error: string; isTemporary: boolean } {
 }
 
 /**
- * Endpoint 1: Transcribe Tamil audio and translate to Sinhala
+ * Endpoint 1: Transcribe and translate (Supports both Tamil ➔ Sinhala and Sinhala ➔ Tamil)
  */
 app.post('/api/transcribe-and-translate', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { audioData, mimeType = 'audio/mp3', targetTone = 'natural' } = req.body;
+    const {
+      audioData,
+      mimeType = 'audio/mp3',
+      targetTone = 'natural',
+      direction = 'ta-to-si', // 'ta-to-si' or 'si-to-ta'
+    } = req.body;
 
     if (!audioData) {
       res.status(400).json({ error: 'කරුණාකර ශ්‍රව්‍ය ගොනුවක් (Audio data) සපයන්න.' });
@@ -132,8 +137,45 @@ app.post('/api/transcribe-and-translate', async (req: Request, res: Response): P
 
     const cleaned = cleanBase64(audioData);
     const audioMime = cleaned.mimeType || mimeType;
+    const isSinhalaToTamil = direction === 'si-to-ta';
 
-    const promptText = `
+    const promptText = isSinhalaToTamil
+      ? `
+You are an expert bilingual Sinhala-to-Tamil audio translator and speech specialist.
+Listen to this audio carefully (which is spoken in Sinhala).
+
+Tasks:
+1. Transcribe the spoken Sinhala accurately in Sinhala script.
+2. Provide Singlish / Romanized transliteration for the Sinhala speech.
+3. Translate the spoken Sinhala into authentic, natural spoken Tamil script. Ensure it sounds like a native Tamil speaker speaking fluently, using appropriate vocabulary (${targetTone} tone).
+4. Provide a Romanized Tamil pronunciation guide for the Tamil text.
+5. Break down the speech into aligned sentence/phrase segments.
+6. Provide a 1-2 sentence overall summary in both Sinhala and Tamil.
+
+Output format MUST be valid JSON adhering strictly to this schema:
+{
+  "sourceLang": "si",
+  "targetLang": "ta",
+  "sourceTranscript": "Full Sinhala transcript in Sinhala script (සිංහල අකුරින්)",
+  "sourceRomanized": "Singlish / Romanized Sinhala pronunciation",
+  "targetTranslation": "Full natural Tamil translation in Tamil script (தமிழ் எழுத்தில்)",
+  "targetRomanized": "Tamil transliteration in Latin script",
+  "summarySource": "Brief summary in Sinhala",
+  "summaryTarget": "Brief summary in Tamil",
+  "segments": [
+    {
+      "id": 1,
+      "source": "Sinhala sentence in Sinhala script",
+      "target": "Corresponding Tamil translation in Tamil script",
+      "tamil": "Corresponding Tamil translation in Tamil script",
+      "sinhala": "Sinhala sentence in Sinhala script"
+    }
+  ],
+  "tamilTranscript": "Full natural Tamil translation in Tamil script",
+  "sinhalaTranslation": "Full Sinhala transcript in Sinhala script"
+}
+`
+      : `
 You are an expert bilingual Tamil-to-Sinhala audio translator and speech specialist.
 Listen to this audio carefully (which is spoken in Tamil).
 
@@ -147,19 +189,25 @@ Tasks:
 
 Output format MUST be valid JSON adhering strictly to this schema:
 {
-  "tamilTranscript": "Full Tamil transcript in Tamil script",
-  "tamilRomanized": "Tamil transliteration in Latin script",
-  "sinhalaTranslation": "Full natural Sinhala translation in Sinhala script (සිංහල අකුරින්)",
-  "sinhalaRomanized": "Singlish / Romanized Sinhala pronunciation",
-  "summaryTamil": "Brief summary in Tamil",
-  "summarySinhala": "Brief summary in Sinhala",
+  "sourceLang": "ta",
+  "targetLang": "si",
+  "sourceTranscript": "Full Tamil transcript in Tamil script (தமிழ்)",
+  "sourceRomanized": "Tamil transliteration in Latin script",
+  "targetTranslation": "Full natural Sinhala translation in Sinhala script (සිංහල)",
+  "targetRomanized": "Singlish / Romanized Sinhala pronunciation",
+  "summarySource": "Brief summary in Tamil",
+  "summaryTarget": "Brief summary in Sinhala",
   "segments": [
     {
       "id": 1,
-      "tamil": "Tamil sentence/phrase in Tamil script",
+      "source": "Tamil sentence in Tamil script",
+      "target": "Corresponding Sinhala translation in Sinhala script",
+      "tamil": "Tamil sentence in Tamil script",
       "sinhala": "Corresponding Sinhala translation in Sinhala script"
     }
-  ]
+  ],
+  "tamilTranscript": "Full Tamil transcript in Tamil script",
+  "sinhalaTranslation": "Full natural Sinhala translation in Sinhala script"
 }
 `;
 
@@ -195,7 +243,6 @@ Output format MUST be valid JSON adhering strictly to this schema:
     try {
       parsedData = JSON.parse(jsonText);
     } catch {
-      // Fallback in case of markdown wrapping
       const cleanedJson = jsonText.replace(/^```json\s*/i, '').replace(/\s*```$/, '');
       parsedData = JSON.parse(cleanedJson);
     }
@@ -212,20 +259,26 @@ Output format MUST be valid JSON adhering strictly to this schema:
 });
 
 /**
- * Endpoint 2: Generate Sinhala Speech (TTS) from Sinhala text
+ * Endpoint 2: Generate Speech (TTS) for either Sinhala or Tamil
  */
 app.post('/api/generate-sinhala-speech', async (req: Request, res: Response): Promise<void> => {
   try {
     const {
       text,
       voiceName = 'Kore',
-      style = 'Clear, natural, expressive Sri Lankan Sinhala speaker with clear articulation',
+      targetLang = 'si', // 'si' for Sinhala, 'ta' for Tamil
+      style,
     } = req.body;
 
     if (!text || typeof text !== 'string' || !text.trim()) {
-      res.status(400).json({ error: 'ශ්‍රව්‍ය ජනනය කිරීම සඳහා සිංහල පාඨය ඇතුළත් කරන්න.' });
+      res.status(400).json({ error: 'ශ්‍රව්‍ය ජනනය කිරීම සඳහා පාඨය ඇතුළත් කරන්න.' });
       return;
     }
+
+    const defaultStyle =
+      targetLang === 'ta'
+        ? 'Clear, natural, expressive, articulate Tamil speaker'
+        : 'Clear, natural, expressive Sri Lankan Sinhala speaker with clear articulation';
 
     // Call Gemini 3.8 Flash Lite TTS with fallback to Gemini 3.8 Flash TTS
     const response = await generateContentWithRetry(
@@ -238,7 +291,7 @@ app.post('/api/generate-sinhala-speech', async (req: Request, res: Response): Pr
               {
                 text: text.trim(),
                 speechMetadata: {
-                  style: style,
+                  style: style || defaultStyle,
                 },
               },
             ],
@@ -268,12 +321,25 @@ app.post('/api/generate-sinhala-speech', async (req: Request, res: Response): Pr
       audioBase64: base64Audio,
       mimeType: 'audio/wav',
       voice: voiceName,
+      lang: targetLang,
     });
   } catch (error: any) {
-    console.error('Error in generate-sinhala-speech:', error);
+    console.error('Error in generate-speech:', error);
     const formatted = formatErrorMessage(error);
     res.status(formatted.isTemporary ? 503 : 500).json(formatted);
   }
+});
+
+// Also create explicit alias /api/generate-speech
+app.post('/api/generate-speech', async (req: Request, res: Response): Promise<void> => {
+  // Delegate to same handler
+  const { text, voiceName = 'Kore', targetLang = 'ta', style } = req.body;
+  req.body.targetLang = targetLang;
+  req.body.style = style;
+  req.body.voiceName = voiceName;
+  req.body.text = text;
+  // reuse existing logic
+  return (app._router.handle as any)(req, res);
 });
 
 /**

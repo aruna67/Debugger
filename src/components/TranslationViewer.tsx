@@ -3,89 +3,124 @@ import { Copy, Check, Edit3, Volume2, Sparkles, FileText, Download } from 'lucid
 
 interface Segment {
   id: number;
-  tamil: string;
-  sinhala: string;
+  source?: string;
+  target?: string;
+  tamil?: string;
+  sinhala?: string;
 }
 
 interface TranslationViewerProps {
-  tamilTranscript: string;
-  tamilRomanized?: string;
-  sinhalaTranslation: string;
-  sinhalaRomanized?: string;
+  direction?: 'ta-to-si' | 'si-to-ta';
+  sourceTranscript: string;
+  sourceRomanized?: string;
+  targetTranslation: string;
+  targetRomanized?: string;
   segments: Segment[];
-  summaryTamil?: string;
-  summarySinhala?: string;
-  onUpdateSinhalaText: (newText: string) => void;
+  summarySource?: string;
+  summaryTarget?: string;
+  onUpdateTargetText: (newText: string) => void;
   onRegenerateVoice: (editedText: string) => void;
   isRegeneratingVoice: boolean;
   onDownloadAudio?: () => void;
   lang: 'si' | 'en';
+  // Legacy aliases
+  tamilTranscript?: string;
+  tamilRomanized?: string;
+  sinhalaTranslation?: string;
+  sinhalaRomanized?: string;
+  onUpdateSinhalaText?: (newText: string) => void;
 }
 
 export const TranslationViewer: React.FC<TranslationViewerProps> = ({
-  tamilTranscript,
-  tamilRomanized,
-  sinhalaTranslation,
-  sinhalaRomanized,
+  direction = 'ta-to-si',
+  sourceTranscript,
+  sourceRomanized,
+  targetTranslation,
+  targetRomanized,
   segments,
-  summaryTamil,
-  summarySinhala,
-  onUpdateSinhalaText,
+  summarySource,
+  summaryTarget,
+  onUpdateTargetText,
   onRegenerateVoice,
   isRegeneratingVoice,
   onDownloadAudio,
   lang,
+  tamilTranscript,
+  tamilRomanized,
+  sinhalaTranslation,
+  sinhalaRomanized,
+  onUpdateSinhalaText,
 }) => {
-  const [isEditingSinhala, setIsEditingSinhala] = useState(false);
-  const [editedText, setEditedText] = useState(sinhalaTranslation);
-  const [copiedTamil, setCopiedTamil] = useState(false);
-  const [copiedSinhala, setCopiedSinhala] = useState(false);
+  const isSiToTa = direction === 'si-to-ta';
+
+  // Resolved source & target
+  const resolvedSource = sourceTranscript || (isSiToTa ? sinhalaTranslation : tamilTranscript) || '';
+  const resolvedSourceRomanized = sourceRomanized || (isSiToTa ? sinhalaRomanized : tamilRomanized);
+  const resolvedTarget = targetTranslation || (isSiToTa ? tamilTranscript : sinhalaTranslation) || '';
+  const resolvedTargetRomanized = targetRomanized || (isSiToTa ? tamilRomanized : sinhalaRomanized);
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedText, setEditedText] = useState(resolvedTarget);
+  const [copiedSource, setCopiedSource] = useState(false);
+  const [copiedTarget, setCopiedTarget] = useState(false);
   const [activeTab, setActiveTab] = useState<'side-by-side' | 'segments' | 'summary'>('side-by-side');
 
   // Keep edited text in sync if prop changes
   React.useEffect(() => {
-    setEditedText(sinhalaTranslation);
-  }, [sinhalaTranslation]);
+    setEditedText(resolvedTarget);
+  }, [resolvedTarget]);
 
-  const copyToClipboard = (text: string, type: 'tamil' | 'sinhala') => {
+  const copyToClipboard = (text: string, type: 'source' | 'target') => {
     navigator.clipboard.writeText(text);
-    if (type === 'tamil') {
-      setCopiedTamil(true);
-      setTimeout(() => setCopiedTamil(false), 2000);
+    if (type === 'source') {
+      setCopiedSource(true);
+      setTimeout(() => setCopiedSource(false), 2000);
     } else {
-      setCopiedSinhala(true);
-      setTimeout(() => setCopiedSinhala(false), 2000);
+      setCopiedTarget(true);
+      setTimeout(() => setCopiedTarget(false), 2000);
     }
   };
 
   const handleSaveAndRegenerate = () => {
-    onUpdateSinhalaText(editedText);
+    if (onUpdateTargetText) {
+      onUpdateTargetText(editedText);
+    } else if (onUpdateSinhalaText) {
+      onUpdateSinhalaText(editedText);
+    }
     onRegenerateVoice(editedText);
-    setIsEditingSinhala(false);
+    setIsEditing(false);
   };
 
+  const sourceLabel = isSiToTa ? 'සිංහල (Sinhala Original)' : 'தமிழ் (Tamil Original)';
+  const targetLabel = isSiToTa ? 'தமிழ் (Tamil Dubbed Voice)' : 'සිංහල (Sinhala Dubbed Voice)';
+
   const exportTextFile = () => {
+    const title = isSiToTa
+      ? 'සිංහල - දමිළ හඬ පරිවර්තන පිටපත (Sinhala to Tamil Transcript)'
+      : 'දමිළ - සිංහල හඬ පරිවර්තන පිටපත (Tamil to Sinhala Transcript)';
+
     const content = `================================================
-දමිළ - සිංහල හඬ පරිවර්තන පිටපත (Tamil to Sinhala Transcript)
+${title}
 දිනය: ${new Date().toLocaleDateString()}
 ================================================
 
-[දමිළ මුල් පිටපත / Original Tamil Transcript]
-${tamilTranscript}
-${tamilRomanized ? `\n(උච්චාරණය / Pronunciation): ${tamilRomanized}` : ''}
+[මුල් පිටපත / Original (${sourceLabel})]
+${resolvedSource}
+${resolvedSourceRomanized ? `\n(උච්චාරණය / Pronunciation): ${resolvedSourceRomanized}` : ''}
 
 ------------------------------------------------
-[සිංහල පරිවර්තනය / Sinhala Translation]
+[පරිවර්තනය / Translation (${targetLabel})]
 ${editedText}
-${sinhalaRomanized ? `\n(Singlish): ${sinhalaRomanized}` : ''}
+${resolvedTargetRomanized ? `\n(උච්චාරණය / Pronunciation): ${resolvedTargetRomanized}` : ''}
 
 ------------------------------------------------
 [වාක්‍ය අනුව පෙළගැස්ම / Sentence Segments]
 ${segments
-  .map(
-    (s, idx) =>
-      `${idx + 1}. [Tamil]   ${s.tamil}\n   [Sinhala] ${s.sinhala}`
-  )
+  .map((s, idx) => {
+    const src = s.source || (isSiToTa ? s.sinhala : s.tamil) || '';
+    const tgt = s.target || (isSiToTa ? s.tamil : s.sinhala) || '';
+    return `${idx + 1}. [${isSiToTa ? 'Sinhala' : 'Tamil'}] ${src}\n   [${isSiToTa ? 'Tamil' : 'Sinhala'}]   ${tgt}`;
+  })
   .join('\n\n')}
 `;
 
@@ -93,7 +128,7 @@ ${segments
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `tamil_to_sinhala_transcript_${Date.now()}.txt`;
+    a.download = `${isSiToTa ? 'sinhala_to_tamil' : 'tamil_to_sinhala'}_transcript_${Date.now()}.txt`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -132,7 +167,7 @@ ${segments
             >
               {lang === 'si' ? `වාක්‍ය අනුව (${segments.length})` : `Segments (${segments.length})`}
             </button>
-            {(summaryTamil || summarySinhala) && (
+            {(summarySource || summaryTarget) && (
               <button
                 onClick={() => setActiveTab('summary')}
                 className={`px-3 py-1 rounded-lg font-medium transition-colors ${
@@ -161,73 +196,81 @@ ${segments
       {/* Main Tab Content */}
       {activeTab === 'side-by-side' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Tamil Transcript Card */}
+          {/* Source Card */}
           <div className="flex flex-col rounded-xl border border-slate-800 bg-slate-950/60 p-4 relative">
             <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-semibold">
-                  தமிழ் (Tamil Original)
-                </span>
-              </div>
+              <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-semibold">
+                {sourceLabel}
+              </span>
               <button
-                onClick={() => copyToClipboard(tamilTranscript, 'tamil')}
+                onClick={() => copyToClipboard(resolvedSource, 'source')}
                 className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
               >
-                {copiedTamil ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedTamil ? 'පිටපත් විය' : 'පිටපත්'}</span>
+                {copiedSource ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedSource ? 'පිටපත් විය' : 'පිටපත්'}</span>
               </button>
             </div>
 
-            <p className="text-base text-slate-200 leading-relaxed font-tamil font-medium whitespace-pre-wrap">
-              {tamilTranscript}
+            <p
+              className={`text-base text-slate-200 leading-relaxed font-medium whitespace-pre-wrap ${
+                isSiToTa ? 'font-sinhala' : 'font-tamil'
+              }`}
+            >
+              {resolvedSource}
             </p>
 
-            {tamilRomanized && (
+            {resolvedSourceRomanized && (
               <div className="mt-3 pt-3 border-t border-slate-800/80">
                 <p className="text-[11px] text-slate-400 font-mono italic">
                   <span className="text-slate-500 font-semibold not-italic mr-1">උච්චාරණය:</span>
-                  {tamilRomanized}
+                  {resolvedSourceRomanized}
                 </p>
               </div>
             )}
           </div>
 
-          {/* Sinhala Translation Card (with live editor) */}
+          {/* Target Card (with live editor) */}
           <div className="flex flex-col rounded-xl border border-amber-500/30 bg-amber-950/10 p-4 relative">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 font-semibold">
-                  සිංහල (Sinhala Translation)
+                  {targetLabel}
                 </span>
                 <span className="text-[10px] text-emerald-400 font-mono">● හඬට සූදානම්</span>
               </div>
 
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setIsEditingSinhala(!isEditingSinhala)}
+                  onClick={() => setIsEditing(!isEditing)}
                   className="flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 transition-colors bg-amber-500/10 hover:bg-amber-500/20 px-2 py-0.5 rounded-lg border border-amber-500/20"
                 >
                   <Edit3 className="w-3.5 h-3.5" />
-                  <span>{isEditingSinhala ? 'අවලංගු කරන්න' : 'වෙනස් කරන්න (Edit)'}</span>
+                  <span>{isEditing ? 'අවලංගු කරන්න' : 'වෙනස් කරන්න (Edit)'}</span>
                 </button>
                 <button
-                  onClick={() => copyToClipboard(editedText, 'sinhala')}
+                  onClick={() => copyToClipboard(editedText, 'target')}
                   className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
                 >
-                  {copiedSinhala ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedSinhala ? 'පිටපත් විය' : 'පිටපත්'}</span>
+                  {copiedTarget ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedTarget ? 'පිටපත් විය' : 'පිටපත්'}</span>
                 </button>
               </div>
             </div>
 
-            {isEditingSinhala ? (
+            {isEditing ? (
               <div className="space-y-3">
                 <textarea
                   value={editedText}
                   onChange={(e) => setEditedText(e.target.value)}
                   rows={4}
-                  className="w-full rounded-lg border border-amber-500/50 bg-slate-950 p-3 text-base text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/50 font-sinhala leading-relaxed"
-                  placeholder="සිංහල අකුරින් අවශ්‍ය වෙනස්කම් සිදුකරන්න..."
+                  className={`w-full rounded-lg border border-amber-500/50 bg-slate-950 p-3 text-base text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/50 leading-relaxed ${
+                    isSiToTa ? 'font-tamil' : 'font-sinhala'
+                  }`}
+                  placeholder={
+                    isSiToTa
+                      ? 'தமிழ் எழுத்தில் தேவையான மாற்றங்களைச் செய்யுங்கள்...'
+                      : 'සිංහල අකුරින් අවශ්‍ය වෙනස්කම් සිදුකරන්න...'
+                  }
                 />
                 <div className="flex items-center justify-between">
                   <p className="text-[11px] text-slate-400">
@@ -239,21 +282,31 @@ ${segments
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-500 rounded-lg shadow-md transition-all disabled:opacity-50"
                   >
                     <Volume2 className="w-3.5 h-3.5" />
-                    <span>{isRegeneratingVoice ? 'හඬ ගන්වමින්...' : 'නැවත හඬ ගන්වන්න (Re-voice)'}</span>
+                    <span>
+                      {isRegeneratingVoice
+                        ? 'හඬ ගන්වමින්...'
+                        : isSiToTa
+                        ? 'නැවත දමිළ හඬ ගන්වන්න (Re-voice Tamil)'
+                        : 'නැවත සිංහල හඬ ගන්වන්න (Re-voice Sinhala)'}
+                    </span>
                   </button>
                 </div>
               </div>
             ) : (
               <div>
-                <p className="text-base text-amber-100 font-semibold font-sinhala leading-relaxed whitespace-pre-wrap">
+                <p
+                  className={`text-base text-amber-100 font-semibold leading-relaxed whitespace-pre-wrap ${
+                    isSiToTa ? 'font-tamil' : 'font-sinhala'
+                  }`}
+                >
                   {editedText}
                 </p>
 
-                {sinhalaRomanized && (
+                {resolvedTargetRomanized && (
                   <div className="mt-3 pt-3 border-t border-amber-500/20">
                     <p className="text-[11px] text-slate-400 font-mono italic">
-                      <span className="text-slate-500 font-semibold not-italic mr-1">Singlish:</span>
-                      {sinhalaRomanized}
+                      <span className="text-slate-500 font-semibold not-italic mr-1">උච්චාරණය:</span>
+                      {resolvedTargetRomanized}
                     </p>
                   </div>
                 )}
@@ -266,38 +319,62 @@ ${segments
       {/* Segments View */}
       {activeTab === 'segments' && (
         <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
-          {segments.map((seg, idx) => (
-            <div
-              key={seg.id || idx}
-              className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl border border-slate-800 bg-slate-950/40 hover:bg-slate-800/30 transition-colors"
-            >
-              <div className="flex items-start gap-2.5 flex-1">
-                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-slate-800 text-slate-300 text-xs font-mono font-bold flex items-center justify-center">
-                  {idx + 1}
-                </span>
-                <div className="space-y-1">
-                  <p className="text-sm font-tamil text-blue-300 font-medium">{seg.tamil}</p>
-                  <p className="text-sm font-sinhala text-amber-200 font-semibold">{seg.sinhala}</p>
+          {segments.map((seg, idx) => {
+            const src = seg.source || (isSiToTa ? seg.sinhala : seg.tamil) || '';
+            const tgt = seg.target || (isSiToTa ? seg.tamil : seg.sinhala) || '';
+            return (
+              <div
+                key={seg.id || idx}
+                className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl border border-slate-800 bg-slate-950/40 hover:bg-slate-800/30 transition-colors"
+              >
+                <div className="flex items-start gap-2.5 flex-1">
+                  <span className="flex-shrink-0 w-6 h-6 rounded-full bg-slate-800 text-slate-300 text-xs font-mono font-bold flex items-center justify-center">
+                    {idx + 1}
+                  </span>
+                  <div className="space-y-1">
+                    <p
+                      className={`text-sm text-blue-300 font-medium ${
+                        isSiToTa ? 'font-sinhala' : 'font-tamil'
+                      }`}
+                    >
+                      {src}
+                    </p>
+                    <p
+                      className={`text-sm text-amber-200 font-semibold ${
+                        isSiToTa ? 'font-tamil' : 'font-sinhala'
+                      }`}
+                    >
+                      {tgt}
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {/* Summary View */}
       {activeTab === 'summary' && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-2">
-          {summaryTamil && (
+          {summarySource && (
             <div className="p-4 rounded-xl border border-slate-800 bg-slate-950/60">
-              <span className="text-xs text-blue-400 font-semibold mb-1 block">சுருக்கம் (Tamil Summary):</span>
-              <p className="text-sm text-slate-300 font-tamil">{summaryTamil}</p>
+              <span className="text-xs text-blue-400 font-semibold mb-1 block">
+                {isSiToTa ? 'සිංහල සාරාංශය (Sinhala Summary):' : 'சுருக்கம் (Tamil Summary):'}
+              </span>
+              <p className={`text-sm text-slate-300 ${isSiToTa ? 'font-sinhala' : 'font-tamil'}`}>
+                {summarySource}
+              </p>
             </div>
           )}
-          {summarySinhala && (
+          {summaryTarget && (
             <div className="p-4 rounded-xl border border-amber-500/20 bg-amber-950/20">
-              <span className="text-xs text-amber-300 font-semibold mb-1 block">සාරාංශය (Sinhala Summary):</span>
-              <p className="text-sm text-slate-200 font-sinhala">{summarySinhala}</p>
+              <span className="text-xs text-amber-300 font-semibold mb-1 block">
+                {isSiToTa ? 'சுருக்கம் (Tamil Summary):' : 'සාරාංශය (Sinhala Summary):'}
+              </span>
+              <p className={`text-sm text-slate-200 ${isSiToTa ? 'font-tamil' : 'font-sinhala'}`}>
+                {summaryTarget}
+              </p>
             </div>
           )}
         </div>

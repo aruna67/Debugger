@@ -121,6 +121,7 @@ interface VoiceSelectorProps {
   onVoiceChange: (voice: 'Kore' | 'Zephyr' | 'Puck' | 'Fenrir' | 'Charon') => void;
   selectedTone: 'natural' | 'news' | 'story' | 'polite';
   onToneChange: (tone: 'natural' | 'news' | 'story' | 'polite') => void;
+  targetLang?: 'si' | 'ta';
   lang: 'si' | 'en';
 }
 
@@ -129,15 +130,23 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
   onVoiceChange,
   selectedTone,
   onToneChange,
+  targetLang = 'si',
   lang,
 }) => {
+  const isTargetTamil = targetLang === 'ta';
   return (
     <div className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-4 md:p-5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <SlidersHorizontal className="w-4 h-4 text-amber-400" />
           <h3 className="text-sm font-semibold text-slate-100">
-            {lang === 'si' ? 'සිංහල කටහඬ හා විලාසය තෝරන්න (Voice Selection)' : 'Select Sinhala AI Voice & Style'}
+            {lang === 'si'
+              ? isTargetTamil
+                ? 'දමිළ කටහඬ හා විලාසය තෝරන්න (Tamil Voice Selection)'
+                : 'සිංහල කටහඬ හා විලාසය තෝරන්න (Sinhala Voice Selection)'
+              : isTargetTamil
+              ? 'Select Tamil AI Voice & Style'
+              : 'Select Sinhala AI Voice & Style'}
           </h3>
         </div>
         <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center gap-1 font-mono">

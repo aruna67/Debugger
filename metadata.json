@@ -1,6 +1,6 @@
 {
-  "name": "Tamil to Sinhala Voice Dubber & Translator",
-  "description": "Convert Tamil MP3 audio to natural Sinhala voice audio with transcript, translation, voice controls and high-quality audio download.",
+  "name": "Tamil & Sinhala Voice Dubber & Translator",
+  "description": "Bidirectional AI audio dubbing between Tamil and Sinhala: Convert Tamil MP3 to natural Sinhala voice and Sinhala MP3 to Tamil voice with instant audio download.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
