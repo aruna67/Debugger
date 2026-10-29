@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .font-sinhala {
+    font-family: 'Noto Sans Sinhala', 'Plus Jakarta Sans', system-ui, sans-serif;
+  }
+  .font-tamil {
+    font-family: 'Noto Sans Tamil', system-ui, sans-serif;
+  }
+}
+
+body {
+  background-color: #090d16;
+  color: #f1f5f9;
+  font-family: 'Plus Jakarta Sans', 'Noto Sans Sinhala', system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+}
